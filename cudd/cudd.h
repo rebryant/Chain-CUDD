@@ -72,6 +72,11 @@ extern "C" {
 /* Constant declarations                                                     */
 /*---------------------------------------------------------------------------*/
 
+/* Enable variable chaining by default */
+#ifndef USE_CHAINING
+#define USE_CHAINING 1
+#endif
+
 #define CUDD_VERSION "2.5.1"
 
 #ifndef SIZEOF_VOID_P
@@ -103,9 +108,17 @@ extern "C" {
 ** number.
 */
 #if SIZEOF_VOID_P == 8 && SIZEOF_INT == 4
+#if USE_CHAINING
+#define CUDD_MAXINDEX		((DdQuarterWord) ~0)
+#else
 #define CUDD_MAXINDEX		(((DdHalfWord) ~0) >> 1)
+#endif /* USE_CHAINING */
+#else
+#if USE_CHAINING
+#define CUDD_MAXINDEX		((DdQuarterWord) ~0)
 #else
 #define CUDD_MAXINDEX		((DdHalfWord) ~0)
+#endif /* USE_CHAINING */
 #endif
 
 /* CUDD_CONST_INDEX is the index of constant nodes.  Currently this
@@ -256,9 +269,15 @@ typedef enum {
 
 #if SIZEOF_VOID_P == 8 && SIZEOF_INT == 4
 typedef unsigned int   DdHalfWord;
-#else
+#if USE_CHAINING
+typedef unsigned short DdQuarterWord;
+#endif /* USE_CHAINING */
+#else /* SIZEOF_VOID_P == 8 && SIZEOF_INT == 4 */
 typedef unsigned short DdHalfWord;
-#endif
+#if USE_CHAINING
+typedef unsigned char DdQuarterWord;
+#endif /* USE_CHAINING */
+#endif /* SIZEOF_VOID_P == 8 && SIZEOF_INT == 4 */
 
 typedef struct DdNode DdNode;
 
@@ -269,7 +288,21 @@ typedef struct DdChildren {
 
 /* The DdNode structure is the only one exported out of the package */
 struct DdNode {
+#if USE_CHAINING
+    /*
+     * Chain nodes are like regular BDD nodes, except they contain a second
+     * index "bindex", which is >= the normal index.  A chain node with
+     * index t (for "top"), bindex b (for "bottom") and children T and E is
+     * like a chain of BDD nodes with indices t, t+1, ..., b, linked through
+     * their Else branches and all having Then branches equal to E.  The
+     * bottommost node has T as its Then child.
+     */
+
+    DdQuarterWord index;        /* First variable in range */
+    DdQuarterWord bindex;       /* Last  variable in range */
+#else
     DdHalfWord index;
+#endif
     DdHalfWord ref;		/* reference count */
     DdNode *next;		/* next pointer for unique table */
     union {
