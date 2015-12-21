@@ -14,7 +14,11 @@
 #define end _end
 #endif
 
-extern int end, etext, edata;
+/* REB.  Changed:
+  extern int end, etext, edata;
+  to:
+*/
+int end, etext, edata;
 
 #endif
 
