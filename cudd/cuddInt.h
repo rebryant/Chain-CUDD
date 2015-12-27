@@ -699,6 +699,17 @@ typedef struct DdLevelQueue {
 ((((unsigned)(f) * DD_P1 + (unsigned)(g)) * DD_P2) >> (s))
 #endif
 
+#if USE_CHAINING > 0
+#if SIZEOF_VOID_P == 8 && SIZEOF_INT == 4
+#define ddHash2(f,g,s,t)   \
+((((unsigned)(ptruint)(f) * DD_P1 +  \
+   (unsigned)(ptruint)(g)) * DD_P2 + \
+  (unsigned)(t) * DD_P3) >> (s))
+#else
+#define ddHash2(f,g,s,b)   \
+((((unsigned)(f) * DD_P1 + (unsigned)(g)) * DD_P2 (unsigned) (b) * DD_P3) >> (s))
+#endif
+#endif /* USE_CHAINING */
 
 /**Macro***********************************************************************
 
@@ -1127,6 +1138,9 @@ extern int cuddGarbageCollect (DdManager *unique, int clearCache);
 extern DdNode * cuddZddGetNode (DdManager *zdd, int id, DdNode *T, DdNode *E);
 extern DdNode * cuddZddGetNodeIVO (DdManager *dd, int index, DdNode *g, DdNode *h);
 extern DdNode * cuddUniqueInter (DdManager *unique, int index, DdNode *T, DdNode *E);
+#if USE_CHAINING > 0
+extern DdNode * cuddUniqueInterChained (DdManager *unique, int index, int bindex, DdNode *T, DdNode *E);
+#endif
 extern DdNode * cuddUniqueInterIVO (DdManager *unique, int index, DdNode *T, DdNode *E);
 extern DdNode * cuddUniqueInterZdd (DdManager *unique, int index, DdNode *T, DdNode *E);
 extern DdNode * cuddUniqueConst (DdManager *unique, CUDD_VALUE_TYPE value);

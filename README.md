@@ -17,10 +17,30 @@ long, which is enough for most applications.  When compiled for 32
 bits, each index is 8 bits long, which really is not a good idea.
 
 The code here was created by editting the code for CUDD v2.5.1.  Chain
-is enabled with compile-time constant USE_CHAINING.  It is enabled by
-default.  Compiling with -DUSE_CHAINING=0 reverts to the original code.
+is enabled with compile-time constant USE_CHAINING.  This value can
+have 3 levels:
 
+0: Don't use chaining.  Reverts to standard BDD functionality
+(although underlying code has changed)
 
+1: Use chaining.  This is the default
+
+2: Use chaining, but only when the Else child is a constant.  This
+   puts it closer to ZBDDs.  Mainly of experimental interest.
+
+Changes required:
+
+cudd.h: Revised node declaration
+
+cuddInter.h, cuddTable.c:
+
+Created separate function cuddUniqueInterChained.  This one has a
+separate argument for the bindex.  The exisiting cuddUniqueInter is
+kept to simplify code migration.  It handles the case where bindex =
+index.  
+
+cuddInter.h
+Created separate macro ddHash2 to hash two dds + two ints
 
 
 

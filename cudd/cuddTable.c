@@ -20,6 +20,7 @@
 		<li> cuddZddGetNode()
 		<li> cuddZddGetNodeIVO()
 		<li> cuddUniqueInter()
+		<li> cuddUniqueInterChained()  (Only when chaining enabled)
 		<li> cuddUniqueInterIVO()
 		<li> cuddUniqueInterZdd()
 		<li> cuddUniqueConst()
@@ -1125,6 +1126,27 @@ cuddZddGetNodeIVO(
 
 /**Function********************************************************************
 
+  Synopsis    [Checks the unique table for the existence of an internal node when index = bindex]
+
+  Special case of cuddUniqueInterChained for index = bindex.  Included for legacy purposes.
+
+  SideEffects [None]
+
+  SeeAlso     [cuddUniqueInterUniqueInter]
+
+******************************************************************************/
+DdNode *
+cuddUniqueInter(
+  DdManager * unique,
+  int  index,
+  DdNode * T,
+  DdNode * E)
+{
+    return cuddUniqueInterChained(unique, index, index, T, E);
+} /* end of cuddUnique */
+
+/**Function********************************************************************
+
   Synopsis    [Checks the unique table for the existence of an internal node.]
 
   Description [Checks the unique table for the existence of an internal
@@ -1141,19 +1163,20 @@ cuddZddGetNodeIVO(
 
 ******************************************************************************/
 DdNode *
-cuddUniqueInter(
+cuddUniqueInterChained(
   DdManager * unique,
   int  index,
+  int bindex,
   DdNode * T,
   DdNode * E)
 {
     int pos;
-    unsigned int level;
+    unsigned int level, blevel;
     int retval;
     DdNodePtr *nodelist;
     DdNode *looking;
     DdNodePtr *previousP;
-    DdSubtable *subtable;
+    DdSubtable *subtable, *bsubtable;
     int gcNumber;
 
 #ifdef DD_UNIQUE_PROFILE
@@ -1171,20 +1194,27 @@ cuddUniqueInter(
             return(NULL);
         }
     }
-    if (index >= unique->size) {
+    /* Guarantee: bindex >= index */
+    if (bindex >= unique->size) {
         int amount = ddMax(DD_DEFAULT_RESIZE,unique->size/20);
-        if (!ddResizeTable(unique,index,amount)) return(NULL);
+        if (!ddResizeTable(unique,bindex,amount)) return(NULL);
     }
 
     level = unique->perm[index];
     subtable = &(unique->subtables[level]);
+    blevel = unique->perm[bindex];
 
 #ifdef DD_DEBUG
     assert(level < (unsigned) cuddI(unique,T->index));
     assert(level < (unsigned) cuddI(unique,Cudd_Regular(E)->index));
+    assert(level <= blevel);
 #endif
 
+#if USE_CHAINING > 0
+    pos = ddHash2(T, E, subtable->shift, blevel);
+#else
     pos = ddHash(T, E, subtable->shift);
+#endif
     nodelist = subtable->nodelist;
     previousP = &(nodelist[pos]);
     looking = *previousP;
@@ -1203,7 +1233,23 @@ cuddUniqueInter(
 	unique->uniqueLinks++;
 #endif
     }
+#if USE_CHAINING > 0
+    while (T == cuddT(looking) && E == cuddE(looking)
+	   && blevel < unique->perm[looking->bindex]) {
+	previousP = &(looking->next);
+	looking = *previousP;
+#ifdef DD_UNIQUE_PROFILE
+	unique->uniqueLinks++;
+#endif
+    }
+#endif /* USE_CHAINING */
+
+#if USE_CHAINING > 0
+    if (T == cuddT(looking) && E == cuddE(looking)
+	&& blevel == unique->perm[looking->bindex]) {
+#else
     if (T == cuddT(looking) && E == cuddE(looking)) {
+#endif
 	if (looking->ref == 0) {
 	    cuddReclaim(unique,looking);
 	}
@@ -1266,7 +1312,11 @@ cuddUniqueInter(
 	/* Update pointer to insertion point. In the case of rehashing,
 	** the slot may have changed. In the case of garbage collection,
 	** the predecessor may have been dead. */
+#if USE_CHAINING > 0
+	pos = ddHash2(T, E, subtable->shift, blevel);
+#else
 	pos = ddHash(T, E, subtable->shift);
+#endif
 	nodelist = subtable->nodelist;
 	previousP = &(nodelist[pos]);
 	looking = *previousP;
@@ -1287,6 +1337,17 @@ cuddUniqueInter(
 	}
     }
 
+#if USE_CHAINING > 0
+    while (T == cuddT(looking) && E == cuddE(looking)
+	   && blevel < unique->perm[looking->bindex]) {
+	previousP = &(looking->next);
+	looking = *previousP;
+#ifdef DD_UNIQUE_PROFILE
+	unique->uniqueLinks++;
+#endif
+    }
+#endif /* USE_CHAINING */
+
     gcNumber = unique->garbageCollections;
     looking = cuddAllocNode(unique);
     if (looking == NULL) {
@@ -1297,7 +1358,11 @@ cuddUniqueInter(
 
     if (gcNumber != unique->garbageCollections) {
 	DdNode *looking2;
+#if USE_CHAINING > 0
+	pos = ddHash2(T, E, subtable->shift, blevel);
+#else
 	pos = ddHash(T, E, subtable->shift);
+#endif
 	nodelist = subtable->nodelist;
 	previousP = &(nodelist[pos]);
 	looking2 = *previousP;
@@ -1317,7 +1382,22 @@ cuddUniqueInter(
 #endif
 	}
     }
+
+#if USE_CHAINING > 0
+    while (T == cuddT(looking) && E == cuddE(looking)
+	   && blevel < unique->perm[looking->bindex]) {
+	previousP = &(looking->next);
+	looking = *previousP;
+#ifdef DD_UNIQUE_PROFILE
+	unique->uniqueLinks++;
+#endif
+    }
+#endif /* USE_CHAINING */
+
     looking->index = index;
+#if USE_CHAINING > 0
+    looking->bindex = bindex;
+#endif /* USE_CHAINING */
     cuddT(looking) = T;
     cuddE(looking) = E;
     looking->next = *previousP;

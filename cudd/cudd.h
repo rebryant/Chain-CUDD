@@ -77,7 +77,17 @@ extern "C" {
 #define USE_CHAINING 1
 #endif
 
+#if USE_CHAINING == 0
 #define CUDD_VERSION "2.5.1"
+#endif
+
+#if USE_CHAINING == 1
+#define CUDD_VERSION "2.5.1C"
+#endif
+
+#if USE_CHAINING == 2
+#define CUDD_VERSION "2.5.1CC"
+#endif
 
 #ifndef SIZEOF_VOID_P
 #define SIZEOF_VOID_P 4
@@ -108,13 +118,13 @@ extern "C" {
 ** number.
 */
 #if SIZEOF_VOID_P == 8 && SIZEOF_INT == 4
-#if USE_CHAINING
+#if USE_CHAINING > 0
 #define CUDD_MAXINDEX		((DdQuarterWord) ~0)
 #else
 #define CUDD_MAXINDEX		(((DdHalfWord) ~0) >> 1)
 #endif /* USE_CHAINING */
 #else
-#if USE_CHAINING
+#if USE_CHAINING > 0
 #define CUDD_MAXINDEX		((DdQuarterWord) ~0)
 #else
 #define CUDD_MAXINDEX		((DdHalfWord) ~0)
@@ -269,12 +279,12 @@ typedef enum {
 
 #if SIZEOF_VOID_P == 8 && SIZEOF_INT == 4
 typedef unsigned int   DdHalfWord;
-#if USE_CHAINING
+#if USE_CHAINING > 0
 typedef unsigned short DdQuarterWord;
 #endif /* USE_CHAINING */
 #else /* SIZEOF_VOID_P == 8 && SIZEOF_INT == 4 */
 typedef unsigned short DdHalfWord;
-#if USE_CHAINING
+#if USE_CHAINING > 0
 typedef unsigned char DdQuarterWord;
 #endif /* USE_CHAINING */
 #endif /* SIZEOF_VOID_P == 8 && SIZEOF_INT == 4 */
@@ -288,7 +298,7 @@ typedef struct DdChildren {
 
 /* The DdNode structure is the only one exported out of the package */
 struct DdNode {
-#if USE_CHAINING
+#if USE_CHAINING > 0
     /*
      * Chain nodes are like regular BDD nodes, except they contain a second
      * index "bindex", which is >= the normal index.  A chain node with
