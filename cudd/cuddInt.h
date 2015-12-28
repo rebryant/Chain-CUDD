@@ -1138,9 +1138,7 @@ extern int cuddGarbageCollect (DdManager *unique, int clearCache);
 extern DdNode * cuddZddGetNode (DdManager *zdd, int id, DdNode *T, DdNode *E);
 extern DdNode * cuddZddGetNodeIVO (DdManager *dd, int index, DdNode *g, DdNode *h);
 extern DdNode * cuddUniqueInter (DdManager *unique, int index, DdNode *T, DdNode *E);
-#if USE_CHAINING > 0
 extern DdNode * cuddUniqueInterChained (DdManager *unique, int index, int bindex, DdNode *T, DdNode *E);
-#endif
 extern DdNode * cuddUniqueInterIVO (DdManager *unique, int index, DdNode *T, DdNode *E);
 extern DdNode * cuddUniqueInterZdd (DdManager *unique, int index, DdNode *T, DdNode *E);
 extern DdNode * cuddUniqueConst (DdManager *unique, CUDD_VALUE_TYPE value);
