@@ -1171,7 +1171,7 @@ cuddUniqueInterChained(
   DdNode * E)
 {
     int pos;
-    unsigned int level, blevel;
+    unsigned int level;
     int retval;
     DdNodePtr *nodelist;
     DdNode *looking;
@@ -1182,6 +1182,8 @@ cuddUniqueInterChained(
 #ifdef DD_UNIQUE_PROFILE
     unique->uniqueLookUps++;
 #endif
+
+    assert(index == bindex);
 
     if ((0x1ffffUL & (unsigned long) unique->cacheMisses) == 0) {
         if (util_cpu_time() - unique->startTime > unique->timeLimit) {
@@ -1202,16 +1204,15 @@ cuddUniqueInterChained(
 
     level = unique->perm[index];
     subtable = &(unique->subtables[level]);
-    blevel = unique->perm[bindex];
 
 #ifdef DD_DEBUG
     assert(level < (unsigned) cuddI(unique,T->index));
     assert(level < (unsigned) cuddI(unique,Cudd_Regular(E)->index));
-    assert(level <= blevel);
+    assert(level <= unique->perm[bindex]);
 #endif
 
 #if USE_CHAINING > 0
-    pos = ddHash2(T, E, subtable->shift, blevel);
+    pos = ddHash2(T, E, subtable->shift, bindex);
 #else
     pos = ddHash(T, E, subtable->shift);
 #endif
@@ -1235,7 +1236,7 @@ cuddUniqueInterChained(
     }
 #if USE_CHAINING > 0
     while (T == cuddT(looking) && E == cuddE(looking)
-	   && blevel < unique->perm[looking->bindex]) {
+	   && bindex < looking->bindex) {
 	previousP = &(looking->next);
 	looking = *previousP;
 #ifdef DD_UNIQUE_PROFILE
@@ -1246,7 +1247,7 @@ cuddUniqueInterChained(
 
 #if USE_CHAINING > 0
     if (T == cuddT(looking) && E == cuddE(looking)
-	&& blevel == unique->perm[looking->bindex]) {
+	&& bindex == looking->bindex) {
 #else
     if (T == cuddT(looking) && E == cuddE(looking)) {
 #endif
@@ -1313,7 +1314,7 @@ cuddUniqueInterChained(
 	** the slot may have changed. In the case of garbage collection,
 	** the predecessor may have been dead. */
 #if USE_CHAINING > 0
-	pos = ddHash2(T, E, subtable->shift, blevel);
+	pos = ddHash2(T, E, subtable->shift, bindex);
 #else
 	pos = ddHash(T, E, subtable->shift);
 #endif
@@ -1335,18 +1336,19 @@ cuddUniqueInterChained(
 	    unique->uniqueLinks++;
 #endif
 	}
-    }
 
 #if USE_CHAINING > 0
-    while (T == cuddT(looking) && E == cuddE(looking)
-	   && blevel < unique->perm[looking->bindex]) {
-	previousP = &(looking->next);
-	looking = *previousP;
+	while (T == cuddT(looking) && E == cuddE(looking)
+	       && bindex < looking->bindex) {
+	    previousP = &(looking->next);
+	    looking = *previousP;
 #ifdef DD_UNIQUE_PROFILE
-	unique->uniqueLinks++;
+	    unique->uniqueLinks++;
 #endif
-    }
+	}
 #endif /* USE_CHAINING */
+    }
+
 
     gcNumber = unique->garbageCollections;
     looking = cuddAllocNode(unique);
@@ -1359,7 +1361,7 @@ cuddUniqueInterChained(
     if (gcNumber != unique->garbageCollections) {
 	DdNode *looking2;
 #if USE_CHAINING > 0
-	pos = ddHash2(T, E, subtable->shift, blevel);
+	pos = ddHash2(T, E, subtable->shift, bindex);
 #else
 	pos = ddHash(T, E, subtable->shift);
 #endif
@@ -1381,18 +1383,18 @@ cuddUniqueInterChained(
 	    unique->uniqueLinks++;
 #endif
 	}
-    }
 
 #if USE_CHAINING > 0
-    while (T == cuddT(looking) && E == cuddE(looking)
-	   && blevel < unique->perm[looking->bindex]) {
-	previousP = &(looking->next);
-	looking = *previousP;
+	while (T == cuddT(looking2) && E == cuddE(looking2)
+	       && bindex < looking2->bindex) {
+	    previousP = &(looking2->next);
+	    looking2 = *previousP;
 #ifdef DD_UNIQUE_PROFILE
-	unique->uniqueLinks++;
+	    unique->uniqueLinks++;
 #endif
-    }
+	}
 #endif /* USE_CHAINING */
+    }
 
     looking->index = index;
 #if USE_CHAINING > 0
@@ -1735,7 +1737,11 @@ cuddRehash(
 	    oddP = &(nodelist[(j<<1)+1]);
 	    while (node != sentinel) {
 		next = node->next;
+#if USE_CHAINING > 0		
+		pos = ddHash2(cuddT(node), cuddE(node), shift, node->bindex);
+#else
 		pos = ddHash(cuddT(node), cuddE(node), shift);
+#endif /* USE_CHAINING */
 		if (pos & 1) {
 		    *oddP = node;
 		    oddP = &(node->next);
@@ -1872,7 +1878,11 @@ cuddShrinkSubtable(
 	    DdNode *looking, *T, *E;
 	    DdNodePtr *previousP;
 	    next = node->next;
+#if USE_CHAINING > 0
+	    posn = ddHash2(cuddT(node), cuddE(node), shift, node->bindex);
+#else
 	    posn = ddHash(cuddT(node), cuddE(node), shift);
+#endif /* USE_CHAINING */
 	    previousP = &(nodelist[posn]);
 	    looking = *previousP;
 	    T = cuddT(node);
@@ -2612,7 +2622,11 @@ ddRehashZdd(
 	node = oldnodelist[j];
 	while (node != NULL) {
 	    next = node->next;
+#if USE_CHAINING > 0
+	    pos = ddHash2(cuddT(node), cuddE(node), shift, node->bindex);
+#else
 	    pos = ddHash(cuddT(node), cuddE(node), shift);
+#endif /* USE_CHAINING */
 	    node->next = nodelist[pos];
 	    nodelist[pos] = node;
 	    node = next;
