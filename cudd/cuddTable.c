@@ -13,6 +13,7 @@
 		</ul>
 	Internal procedures included in this module:
 		<ul>
+		<li> cudd_SetChaining()
 		<li> cuddAllocNode()
 		<li> cuddInitTable()
 		<li> cuddFreeTable()
@@ -172,6 +173,22 @@ static void ddReportRefMess (DdManager *unique, int i, const char *caller);
 /* Definition of exported functions                                          */
 /*---------------------------------------------------------------------------*/
 
+
+/**Function********************************************************************
+
+  Synopsis    [Sets chaining mode]
+
+  Description [Sets chaining mode.  Must be done before nodes that are subject
+  to chain compression get created.]
+
+  SideEffects [Sets chaining mode for duration of computation.]
+
+******************************************************************************/
+void
+Cudd_SetChaining(DdManager *dd, Cudd_ChainingType type) {
+    dd->chaining = type;
+    printf("Chaining set to %d\n", type);
+}
 
 /**Function********************************************************************
 
@@ -1182,9 +1199,6 @@ cuddUniqueInterChained(
 #ifdef DD_UNIQUE_PROFILE
     unique->uniqueLookUps++;
 #endif
-
-    assert(index == bindex);
-
     if ((0x1ffffUL & (unsigned long) unique->cacheMisses) == 0) {
         if (util_cpu_time() - unique->startTime > unique->timeLimit) {
             unique->errorCode = CUDD_TIMEOUT_EXPIRED;
@@ -1211,11 +1225,8 @@ cuddUniqueInterChained(
     assert(level <= unique->perm[bindex]);
 #endif
 
-#if USE_CHAINING > 0
+    /* Chaining Support */
     pos = ddHash2(T, E, subtable->shift, bindex);
-#else
-    pos = ddHash(T, E, subtable->shift);
-#endif
     nodelist = subtable->nodelist;
     previousP = &(nodelist[pos]);
     looking = *previousP;
@@ -1234,7 +1245,8 @@ cuddUniqueInterChained(
 	unique->uniqueLinks++;
 #endif
     }
-#if USE_CHAINING > 0
+
+    /* Chaining Support */
     while (T == cuddT(looking) && E == cuddE(looking)
 	   && bindex < looking->bindex) {
 	previousP = &(looking->next);
@@ -1243,14 +1255,10 @@ cuddUniqueInterChained(
 	unique->uniqueLinks++;
 #endif
     }
-#endif /* USE_CHAINING */
 
-#if USE_CHAINING > 0
+    /* Chaining Support */
     if (T == cuddT(looking) && E == cuddE(looking)
 	&& bindex == looking->bindex) {
-#else
-    if (T == cuddT(looking) && E == cuddE(looking)) {
-#endif
 	if (looking->ref == 0) {
 	    cuddReclaim(unique,looking);
 	}
@@ -1313,11 +1321,8 @@ cuddUniqueInterChained(
 	/* Update pointer to insertion point. In the case of rehashing,
 	** the slot may have changed. In the case of garbage collection,
 	** the predecessor may have been dead. */
-#if USE_CHAINING > 0
+	/* Chaining Support */
 	pos = ddHash2(T, E, subtable->shift, bindex);
-#else
-	pos = ddHash(T, E, subtable->shift);
-#endif
 	nodelist = subtable->nodelist;
 	previousP = &(nodelist[pos]);
 	looking = *previousP;
@@ -1337,7 +1342,7 @@ cuddUniqueInterChained(
 #endif
 	}
 
-#if USE_CHAINING > 0
+	/* Chaining Support */
 	while (T == cuddT(looking) && E == cuddE(looking)
 	       && bindex < looking->bindex) {
 	    previousP = &(looking->next);
@@ -1346,7 +1351,6 @@ cuddUniqueInterChained(
 	    unique->uniqueLinks++;
 #endif
 	}
-#endif /* USE_CHAINING */
     }
 
 
@@ -1360,11 +1364,9 @@ cuddUniqueInterChained(
 
     if (gcNumber != unique->garbageCollections) {
 	DdNode *looking2;
-#if USE_CHAINING > 0
+	/* Chaining Support */
 	pos = ddHash2(T, E, subtable->shift, bindex);
-#else
-	pos = ddHash(T, E, subtable->shift);
-#endif
+
 	nodelist = subtable->nodelist;
 	previousP = &(nodelist[pos]);
 	looking2 = *previousP;
@@ -1384,7 +1386,7 @@ cuddUniqueInterChained(
 #endif
 	}
 
-#if USE_CHAINING > 0
+	/* Chaining Support */
 	while (T == cuddT(looking2) && E == cuddE(looking2)
 	       && bindex < looking2->bindex) {
 	    previousP = &(looking2->next);
@@ -1393,13 +1395,11 @@ cuddUniqueInterChained(
 	    unique->uniqueLinks++;
 #endif
 	}
-#endif /* USE_CHAINING */
     }
 
     looking->index = index;
-#if USE_CHAINING > 0
+    /* Chaining Support */
     looking->bindex = bindex;
-#endif /* USE_CHAINING */
     cuddT(looking) = T;
     cuddE(looking) = E;
     looking->next = *previousP;
@@ -1737,11 +1737,8 @@ cuddRehash(
 	    oddP = &(nodelist[(j<<1)+1]);
 	    while (node != sentinel) {
 		next = node->next;
-#if USE_CHAINING > 0		
+		/* Chaining Support */
 		pos = ddHash2(cuddT(node), cuddE(node), shift, node->bindex);
-#else
-		pos = ddHash(cuddT(node), cuddE(node), shift);
-#endif /* USE_CHAINING */
 		if (pos & 1) {
 		    *oddP = node;
 		    oddP = &(node->next);
@@ -1878,11 +1875,8 @@ cuddShrinkSubtable(
 	    DdNode *looking, *T, *E;
 	    DdNodePtr *previousP;
 	    next = node->next;
-#if USE_CHAINING > 0
+	    /* Chaining Support */
 	    posn = ddHash2(cuddT(node), cuddE(node), shift, node->bindex);
-#else
-	    posn = ddHash(cuddT(node), cuddE(node), shift);
-#endif /* USE_CHAINING */
 	    previousP = &(nodelist[posn]);
 	    looking = *previousP;
 	    T = cuddT(node);
@@ -2622,11 +2616,8 @@ ddRehashZdd(
 	node = oldnodelist[j];
 	while (node != NULL) {
 	    next = node->next;
-#if USE_CHAINING > 0
+	    /* Chaining Support */
 	    pos = ddHash2(cuddT(node), cuddE(node), shift, node->bindex);
-#else
-	    pos = ddHash(cuddT(node), cuddE(node), shift);
-#endif /* USE_CHAINING */
 	    node->next = nodelist[pos];
 	    nodelist[pos] = node;
 	    node = next;

@@ -325,6 +325,8 @@ typedef struct DdSubtable {	/* subtable for one index */
 
 struct DdManager {	/* specialized DD symbol table */
     /* Constants */
+    /* Chaining Support */
+    Cudd_ChainingType chaining; /* What type of chaining to employ */
     DdNode sentinel;		/* for collision lists */
     DdNode *one;		/* constant 1 */
     DdNode *zero;		/* constant 0 */
@@ -699,7 +701,7 @@ typedef struct DdLevelQueue {
 ((((unsigned)(f) * DD_P1 + (unsigned)(g)) * DD_P2) >> (s))
 #endif
 
-#if USE_CHAINING > 0
+/* Chaining Support.  Need to hash bindex */
 #if SIZEOF_VOID_P == 8 && SIZEOF_INT == 4
 #define ddHash2(f,g,s,t)   \
 ((((unsigned)(ptruint)(f) * DD_P1 +  \
@@ -709,7 +711,6 @@ typedef struct DdLevelQueue {
 #define ddHash2(f,g,s,b)   \
 ((((unsigned)(f) * DD_P1 + (unsigned)(g)) * DD_P2 (unsigned) (b) * DD_P3) >> (s))
 #endif
-#endif /* USE_CHAINING */
 
 /**Macro***********************************************************************
 

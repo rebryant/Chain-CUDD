@@ -16,31 +16,38 @@ regular BDD node.  When compiled for 64 bits, each index is 16 bits
 long, which is enough for most applications.  When compiled for 32
 bits, each index is 8 bits long, which really is not a good idea.
 
-The code here was created by editting the code for CUDD v2.5.1.  Chain
-is enabled with compile-time constant USE_CHAINING.  This value can
-have 3 levels:
+The code here was created by editting the code for CUDD v2.5.1.
+The chaining mode is set for a Dd manager using the function
+Cudd_SetChaining.  There are 3 levels, defined by an enumerated type:
 
-0: Don't use chaining.  Reverts to standard BDD functionality
-(although underlying code has changed)
+CUDD_CHAIN_NONE: Don't use chaining.  Reverts to standard BDD
+functionality (although underlying code has changed)
 
-1: Use chaining.  This is the default
+CUDD_CHAIN_CONSTANT: Apply chain reduction only when Then child is
+constant.  This puts it closer to ZDDs.  Mainly of experimental
+interest.
 
-2: Use chaining, but only when the Else child is a constant.  This
-   puts it closer to ZBDDs.  Mainly of experimental interest.
+CUDD_CHAIN_ALL: Apply chain reduction whenever possible.
 
-Changes required:
+Changes required. Comment "Chaining Support" appears every place in code
+
 
 cudd.h: Revised node declaration
 
-cuddInter.h, cuddTable.c:
+cuddInt.h, cuddTable.c:
 
 Created separate function cuddUniqueInterChained.  This one has a
 separate argument for the bindex.  The exisiting cuddUniqueInter is
 kept to simplify code migration.  It handles the case where bindex =
-index.  
+index.
 
-cuddInter.h
+cuddInt.h:
 Created separate macro ddHash2 to hash two dds + two ints
 
+cuddBddIte.c:
+
+Implement revised versions of ITE, And, and XOR operations.
+Refactored code to improve its modularity.  Different levels of chain
+compression implemented by function bddGenerateNode.
 
 

@@ -72,22 +72,9 @@ extern "C" {
 /* Constant declarations                                                     */
 /*---------------------------------------------------------------------------*/
 
-/* Enable variable chaining by default */
-#ifndef USE_CHAINING
-#define USE_CHAINING 1
-#endif
-
-#if USE_CHAINING == 0
-#define CUDD_VERSION "2.5.1"
-#endif
-
-#if USE_CHAINING == 1
+/* Chaining Support */
+/* Modified to support chaining */
 #define CUDD_VERSION "2.5.1C"
-#endif
-
-#if USE_CHAINING == 2
-#define CUDD_VERSION "2.5.1CC"
-#endif
 
 #ifndef SIZEOF_VOID_P
 #define SIZEOF_VOID_P 4
@@ -117,18 +104,12 @@ extern "C" {
 ** machines one can cast an index to (int) without generating a negative
 ** number.
 */
+/* Chaining Support */
+/* Modified for smaller index size */
 #if SIZEOF_VOID_P == 8 && SIZEOF_INT == 4
-#if USE_CHAINING > 0
 #define CUDD_MAXINDEX		((DdQuarterWord) ~0)
 #else
-#define CUDD_MAXINDEX		(((DdHalfWord) ~0) >> 1)
-#endif /* USE_CHAINING */
-#else
-#if USE_CHAINING > 0
 #define CUDD_MAXINDEX		((DdQuarterWord) ~0)
-#else
-#define CUDD_MAXINDEX		((DdHalfWord) ~0)
-#endif /* USE_CHAINING */
 #endif
 
 /* CUDD_CONST_INDEX is the index of constant nodes.  Currently this
@@ -159,6 +140,19 @@ extern "C" {
 /*---------------------------------------------------------------------------*/
 /* Type declarations                                                         */
 /*---------------------------------------------------------------------------*/
+
+/**Enum************************************************************************
+
+  Synopsis    [Type of chaining.]
+
+  Description [Type of chaining.]
+
+******************************************************************************/
+typedef enum {
+    CUDD_CHAIN_NONE,
+    CUDD_CHAIN_CONSTANT,
+    CUDD_CHAIN_ALL
+} Cudd_ChainingType;
 
 /**Enum************************************************************************
 
@@ -279,14 +273,12 @@ typedef enum {
 
 #if SIZEOF_VOID_P == 8 && SIZEOF_INT == 4
 typedef unsigned int   DdHalfWord;
-#if USE_CHAINING > 0
+/* Chaining Support */
+/* Size to support index and bindex for chaining */
 typedef unsigned short DdQuarterWord;
-#endif /* USE_CHAINING */
 #else /* SIZEOF_VOID_P == 8 && SIZEOF_INT == 4 */
 typedef unsigned short DdHalfWord;
-#if USE_CHAINING > 0
 typedef unsigned char DdQuarterWord;
-#endif /* USE_CHAINING */
 #endif /* SIZEOF_VOID_P == 8 && SIZEOF_INT == 4 */
 
 typedef struct DdNode DdNode;
@@ -298,7 +290,7 @@ typedef struct DdChildren {
 
 /* The DdNode structure is the only one exported out of the package */
 struct DdNode {
-#if USE_CHAINING > 0
+    /* Chaining Support */
     /*
      * Chain nodes are like regular BDD nodes, except they contain a second
      * index "bindex", which is >= the normal index.  A chain node with
@@ -310,9 +302,6 @@ struct DdNode {
 
     DdQuarterWord index;        /* First variable in range */
     DdQuarterWord bindex;       /* Last  variable in range */
-#else
-    DdHalfWord index;
-#endif
     DdHalfWord ref;		/* reference count */
     DdNode *next;		/* next pointer for unique table */
     union {
@@ -961,6 +950,7 @@ extern DdNode * Cudd_SupersetCompress (DdManager *dd, DdNode *f, int nvars, int 
 extern MtrNode * Cudd_MakeTreeNode (DdManager *dd, unsigned int low, unsigned int size, unsigned int type);
 extern int Cudd_addHarwell (FILE *fp, DdManager *dd, DdNode **E, DdNode ***x, DdNode ***y, DdNode ***xn, DdNode ***yn_, int *nx, int *ny, int *m, int *n, int bx, int sx, int by, int sy, int pr);
 extern DdManager * Cudd_Init (unsigned int numVars, unsigned int numVarsZ, unsigned int numSlots, unsigned int cacheSize, unsigned long maxMemory);
+extern void Cudd_SetChaining(DdManager *dd, Cudd_ChainingType type);
 extern void Cudd_Quit (DdManager *unique);
 extern int Cudd_PrintLinear (DdManager *table);
 extern int Cudd_ReadLinear (DdManager *table, int x, int y);

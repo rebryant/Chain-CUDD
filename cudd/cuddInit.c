@@ -155,6 +155,8 @@ Cudd_Init(
     }
 
     /* Initialize constants. */
+    /* Chaining Support */
+    unique->chaining = CUDD_CHAIN_NONE;
     unique->one = cuddUniqueConst(unique,1.0);
     if (unique->one == NULL) return(0);
     cuddRef(unique->one);
