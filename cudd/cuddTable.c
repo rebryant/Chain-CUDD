@@ -187,7 +187,6 @@ static void ddReportRefMess (DdManager *unique, int i, const char *caller);
 void
 Cudd_SetChaining(DdManager *dd, Cudd_ChainingType type) {
     dd->chaining = type;
-    printf("Chaining set to %d\n", type);
 }
 
 /**Function********************************************************************
@@ -883,6 +882,7 @@ cuddGarbageCollect(
 #endif
 
     for (i = 0; i < unique->size; i++) {
+	//	printf("Table %d.  Dead = %d\n", i, unique->subtables[i].dead);
 	if (unique->subtables[i].dead == 0) continue;
 	nodelist = unique->subtables[i].nodelist;
 
@@ -893,6 +893,7 @@ cuddGarbageCollect(
 	    node = *lastP;
 	    while (node != sentinel) {
 		next = node->next;
+		//		printf("\tNode: %p.  Ref %d\n", node, node->ref);
 		if (node->ref == 0) {
 		    deleted++;
 #ifndef DD_UNSORTED_FREE_LIST
@@ -911,6 +912,7 @@ cuddGarbageCollect(
 	    *lastP = sentinel;
 	}
 	if ((unsigned) deleted != unique->subtables[i].dead) {
+	    //	    printf("Deleted = %d.  Dead = %d\n", deleted, unique->subtables[i].dead);
 	    ddReportRefMess(unique, i, "cuddGarbageCollect");
 	}
 	totalDeleted += deleted;
@@ -1410,7 +1412,7 @@ cuddUniqueInterChained(
 #ifdef DD_DEBUG
     cuddCheckCollisionOrdering(unique,level,pos);
 #endif
-
+    //    printf("Generated node %p.  Indices %d:%d\n", looking, index, bindex);
     return(looking);
 
 } /* end of cuddUniqueInter */

@@ -119,10 +119,12 @@ static char rcsid[] DD_UNUSED = "$Id: cuddBddIte.c,v 1.26 2012/02/05 01:07:18 fa
 static void bddVarToConst (DdNode *f, DdNode **gp, DdNode **hp, DdNode *one);
 static int bddVarToCanonical (DdManager *dd, DdNode **fp, DdNode **gp, DdNode **hp);
 static int bddVarToCanonicalSimple (DdManager *dd, DdNode **fp, DdNode **gp, DdNode **hp);
-static unsigned int bddBottom(DdManager *dd, int n, DdNode *nodes[], unsigned int levels[], unsigned int top);
 static unsigned int bddTop(DdManager *dd, int n, DdNode * nodes[], unsigned int levels[]);
+static unsigned int bddBottom(DdManager *dd, int n, DdNode *nodes[], unsigned int levels[], unsigned int top);
 static void bddSimpleCofactor(DdManager * dd, DdNode * f, unsigned int level, DdNode ** fvp, DdNode ** fnvp, unsigned int *indexp);
-static DdNode *bddGenerateNode(DdManager * dd,  unsigned int index, unsigned int bindex, DdNode *t,  DdNode *e);
+static int bddSimpleCofactorChained(DdManager *dd, DdNode *f, unsigned int blevel, DdNode **fvp, DdNode **fnvp);
+
+static DdNode *bddGenerateNode(DdManager * dd,  unsigned int index, unsigned int bindex, DdNode *t,  DdNode *e, int *use_idrp);
 
 
 /**AutomaticEnd***************************************************************/
@@ -724,12 +726,16 @@ cuddBddIteRecur(
   DdNode * g,
   DdNode * h)
 {
-    DdNode	 *one, *zero, *res, *nodes[3];
+    DdNode	 *one, *zero, *nodes[3];
     DdNode	 *r, *Fv, *Fnv, *Gv, *Gnv, *H, *Hv, *Hnv, *t, *e;
-    unsigned int topf, topg, toph;
-    unsigned int tops[3], v;
-    unsigned int index;
+    unsigned int topg, toph;
+    unsigned int botf;
+    unsigned int levels[3], level, blevel;
+    unsigned int index, bindex;
     int		 comple;
+    DdNode       *deref_set[5];
+    int          use_idr[5];
+    int          i, deref_cnt = 0;
 
     statLine(dd);
     /* Terminal cases. */
@@ -746,46 +752,53 @@ cuddBddIteRecur(
 	if (h == zero) {	/* ITE(F,1,0) = F */
 	    return(f);
 	} else {
-	    res = cuddBddAndRecur(dd,Cudd_Not(f),Cudd_Not(h));
-	    return(Cudd_NotCond(res,res != NULL));
+	    r = cuddBddAndRecur(dd,Cudd_Not(f),Cudd_Not(h));
+	    return(Cudd_NotCond(r,r != NULL));
 	}
     } else if (g == zero || f == Cudd_Not(g)) { /* ITE(F,!F,H) = ITE(F,0,H) = !F * H */
 	if (h == one) {		/* ITE(F,0,1) = !F */
 	    return(Cudd_Not(f));
 	} else {
-	    res = cuddBddAndRecur(dd,Cudd_Not(f),h);
-	    return(res);
+	    r = cuddBddAndRecur(dd,Cudd_Not(f),h);
+	    return(r);
 	}
     }
     if (h == zero || f == h) {    /* ITE(F,G,F) = ITE(F,G,0) = F * G */
-	res = cuddBddAndRecur(dd,f,g);
-	return(res);
+	r = cuddBddAndRecur(dd,f,g);
+	return(r);
     } else if (h == one || f == Cudd_Not(h)) { /* ITE(F,G,!F) = ITE(F,G,1) = !F + G */
-	res = cuddBddAndRecur(dd,f,Cudd_Not(g));
-	return(Cudd_NotCond(res,res != NULL));
+	r = cuddBddAndRecur(dd,f,Cudd_Not(g));
+	return(Cudd_NotCond(r,r != NULL));
     }
 
     /* Check remaining one variable case. */
     if (g == h) { 		/* ITE(F,G,G) = G */
 	return(g);
     } else if (g == Cudd_Not(h)) { /* ITE(F,G,!G) = F <-> G */
-	res = cuddBddXorRecur(dd,f,h);
-	return(res);
+	r = cuddBddXorRecur(dd,f,h);
+	return(r);
     }
     
     /* From here, there are no constants. */
     comple = bddVarToCanonicalSimple(dd, &f, &g, &h);
 
     nodes[0] = f; nodes[1] = g; nodes[2] = h;
-    v = bddTop(dd, 3, nodes, tops);
-    topf = tops[0]; topg = tops[1]; toph = tops[2];
+    level = bddTop(dd, 3, nodes, levels);
+    index = cuddII(dd,level);
+    topg = levels[1]; toph = levels[2];
+
+    blevel = bddBottom(dd, 3, nodes, levels, level);
+    bindex = cuddII(dd,blevel);
+    botf = levels[0];
 
     /* f & g are now regular pointers */
 
-    /* A shortcut: ITE(F,G,H) = (v,G,H) if F = (v,1,0), v < top(G,H). */
-    if (topf < topg && topf < toph && cuddT(f) == one && cuddE(f) == zero) {
-	r = cuddUniqueInter(dd, (int) f->index, g, h);
-	return(Cudd_NotCond(r,comple && r != NULL));
+    /* A shortcut: ITE(F,G,H) = (t:b,G,H) if F = (t:b,1,0), b < top(G,H). */
+    if (botf < topg && botf < toph && cuddT(f) == one && cuddE(f) == zero) {
+	r = cuddUniqueInterChained(dd, (int) f->index, (int) f->bindex, g, h);
+	if (r == NULL)
+	    goto cleanup;
+	return(Cudd_NotCond(r,comple));
     }
 
     /* Check cache. */
@@ -793,35 +806,63 @@ cuddBddIteRecur(
     if (r != NULL) {
 	return(Cudd_NotCond(r,comple));
     }
+    /* r is now NULL */
 
     /* Compute cofactors. */
-    bddSimpleCofactor(dd,f,v,&Fv,&Fnv,&index);
-    bddSimpleCofactor(dd,g,v,&Gv,&Gnv,&index);    
-    bddSimpleCofactor(dd,h,v,&Hv,&Hnv,&index);    
+    if (bddSimpleCofactorChained(dd,f,blevel,&Fv,&Fnv)) {
+	use_idr[deref_cnt] = 1;
+	deref_set[deref_cnt++] = Fnv;
+    }
+    if (Fnv == NULL)
+	goto cleanup;
+
+    if (bddSimpleCofactorChained(dd,g,blevel,&Gv,&Gnv)) {
+	use_idr[deref_cnt] = 1;
+	deref_set[deref_cnt++] = Gnv;
+    }
+    if (Gnv == NULL)
+	goto cleanup;
+
+    if (bddSimpleCofactorChained(dd,h,blevel,&Hv,&Hnv)) {
+	use_idr[deref_cnt] = 1;
+	deref_set[deref_cnt++] = Hnv;
+    }
+    if (Hnv == NULL)
+	goto cleanup;
 
     /* Recursive step. */
     t = cuddBddIteRecur(dd,Fv,Gv,Hv);
-    if (t == NULL) return(NULL);
+    if (t == NULL)
+	goto cleanup;
     cuddRef(t);
+    use_idr[deref_cnt] = 0;
+    deref_set[deref_cnt++] = t;
+    
 
     e = cuddBddIteRecur(dd,Fnv,Gnv,Hnv);
-    if (e == NULL) {
-	Cudd_IterDerefBdd(dd,t);
-	return(NULL);
-    }
+    if (e == NULL)
+	goto cleanup;
     cuddRef(e);
 
-    r = bddGenerateNode(dd,index,index,t,e);
+    r = bddGenerateNode(dd,index,bindex,t,e, &use_idr[deref_cnt]);
+    deref_set[deref_cnt++] = e;
 
+ cleanup:
+    /* Dereference intermediate nodes */
     if (r == NULL) {
-	return NULL;
+	for (i = 0; i < deref_cnt; i++)
+	    Cudd_IterDerefBdd(dd, deref_set[i]);
+	return r;
+    } else {
+	for (i = 0; i < deref_cnt; i++) {
+	    if (use_idr[i])
+		Cudd_IterDerefBdd(dd, deref_set[i]);
+	    else
+		cuddDeref(deref_set[i]);
+	}
+	cuddCacheInsert(dd, DD_BDD_ITE_TAG, f, g, h, r);
+	return(Cudd_NotCond(r,comple));
     }
-
-    cuddDeref(t);
-    cuddDeref(e);
-
-    cuddCacheInsert(dd, DD_BDD_ITE_TAG, f, g, h, r);
-    return(Cudd_NotCond(r,comple));
 
 } /* end of cuddBddIteRecur */
 
@@ -888,7 +929,7 @@ cuddBddIntersectRecur(
     }
     cuddRef(e);
 
-    res = bddGenerateNode(dd,index,index,t,e);
+    res = bddGenerateNode(dd,index,index,t,e,NULL);
 
     if (res == NULL) return (NULL);
 
@@ -922,18 +963,23 @@ cuddBddAndRecur(
   DdNode * g)
 {
     DdNode *F, *fv, *fnv, *G, *gv, *gnv, *nodes[2];
-    DdNode *one, *r, *t, *e;
-    unsigned int topf, topg, index, v, tops[2];
+    DdNode *one, *zero, *r, *t, *e;
+    unsigned int levels[2], level, blevel;
+    unsigned int index, bindex;
+    DdNode       *deref_set[4];
+    int          use_idr[4];
+    int          i, deref_cnt = 0;
 
     statLine(manager);
     one = DD_ONE(manager);
+    zero = Cudd_Not(one);
 
     /* Terminal cases. */
     F = Cudd_Regular(f);
     G = Cudd_Regular(g);
     if (F == G) {
 	if (f == g) return(f);
-	else return(Cudd_Not(one));
+	else return(zero);
     }
     if (F == one) {
 	if (f == one) return(g);
@@ -958,37 +1004,59 @@ cuddBddAndRecur(
 	r = cuddCacheLookup2(manager, Cudd_bddAnd, f, g);
 	if (r != NULL) return(r);
     }
+    /* r == NULL */
 
     nodes[0] = f; nodes[1] = g;
-    v = bddTop(manager,2,nodes,tops);
-    topf = tops[0]; topg = tops[1];
+    level = bddTop(manager,2,nodes,levels);
+    index = cuddII(manager,level);
+    blevel = bddBottom(manager,2,nodes,levels,level);
+    bindex = cuddII(manager,blevel);
 
     /* Compute cofactors. */
-    bddSimpleCofactor(manager,f,v,&fv,&fnv,&index);
-    bddSimpleCofactor(manager,g,v,&gv,&gnv,&index);    
+    if (bddSimpleCofactorChained(manager,f,blevel,&fv,&fnv)) {
+	use_idr[deref_cnt] = 1;
+	deref_set[deref_cnt++] = fnv;
+    }
+    if (fnv == NULL)
+	goto cleanup;
+
+    if (bddSimpleCofactorChained(manager,g,blevel,&gv,&gnv)) {
+	use_idr[deref_cnt] = 1;
+	deref_set[deref_cnt++] = gnv;
+    }
+    if (gnv == NULL)
+	goto cleanup;
 
     t = cuddBddAndRecur(manager, fv, gv);
-    if (t == NULL) return(NULL);
+    if (t == NULL)
+	goto cleanup;
     cuddRef(t);
+    use_idr[deref_cnt] = 0;
+    deref_set[deref_cnt++] = t;
 
     e = cuddBddAndRecur(manager, fnv, gnv);
-    if (e == NULL) {
-	Cudd_IterDerefBdd(manager, t);
-	return(NULL);
-    }
+    if (e == NULL)
+	goto cleanup;
     cuddRef(e);
 
-    r = bddGenerateNode(manager,index,index,t,e);
+    r = bddGenerateNode(manager,index,bindex,t,e, &use_idr[deref_cnt]);
+    deref_set[deref_cnt++] = e;
 
-    if (r == NULL) return(NULL);
-
-
-    cuddDeref(e);
-    cuddDeref(t);
-    if (F->ref != 1 || G->ref != 1)
-	cuddCacheInsert2(manager, Cudd_bddAnd, f, g, r);
-    return(r);
-
+ cleanup:
+    if (r == NULL) {
+	for (i = 0; i < deref_cnt; i++)
+	    Cudd_IterDerefBdd(manager, deref_set[i]);
+    } else {
+	for (i = 0; i < deref_cnt; i++) {
+	    if (use_idr[i])
+		Cudd_IterDerefBdd(manager, deref_set[i]);
+	    else
+		cuddDeref(deref_set[i]);
+	}
+	if (F->ref != 1 || G->ref != 1)
+	    cuddCacheInsert2(manager, Cudd_bddAnd, f, g, r);
+    }
+    return r;
 } /* end of cuddBddAndRecur */
 
 
@@ -1011,9 +1079,17 @@ cuddBddXorRecur(
   DdNode * f,
   DdNode * g)
 {
-    DdNode *fv, *fnv, *G, *gv, *gnv, *nodes[2];
-    DdNode *one, *zero, *r, *t, *e;
-    unsigned int topf, topg, index, v, tops[2];
+    DdNode *fv, *fnv, *gv, *gnv, *nodes[2];
+    DdNode *one, *zero, *r, *t, *e, *F, *G;
+    unsigned int levels[2], level, blevel;
+    unsigned int index, bindex;
+    DdNode       *deref_set[4];
+    int          use_idr[4];
+    int          i, deref_cnt = 0;
+
+    F = Cudd_Regular(f);
+    G = Cudd_Regular(g);
+
 
     statLine(manager);
     one = DD_ONE(manager);
@@ -1041,35 +1117,59 @@ cuddBddXorRecur(
     /* Check cache. */
     r = cuddCacheLookup2(manager, Cudd_bddXor, f, g);
     if (r != NULL) return(r);
+    /* r == NULL */
 
     nodes[0] = f; nodes[1] = g;
-    v = bddTop(manager,2,nodes,tops);
-    topf = tops[0]; topg = tops[1];
+    level = bddTop(manager,2,nodes,levels);
+    index = cuddII(manager,level);
+    blevel = bddBottom(manager,2,nodes,levels,level);
+    bindex = cuddII(manager,blevel);
 
     /* Compute cofactors. */
-    bddSimpleCofactor(manager,f,v,&fv,&fnv,&index);
-    bddSimpleCofactor(manager,g,v,&gv,&gnv,&index);    
+    if (bddSimpleCofactorChained(manager,f,blevel,&fv,&fnv)) {
+	use_idr[deref_cnt] = 1;
+	deref_set[deref_cnt++] = fnv;
+    }
+    if (fnv == NULL)
+	goto cleanup;
+
+    if (bddSimpleCofactorChained(manager,g,blevel,&gv,&gnv)) {
+	use_idr[deref_cnt] = 1;
+	deref_set[deref_cnt++] = gnv;
+    }
+    if (gnv == NULL)
+	goto cleanup;
 
     t = cuddBddXorRecur(manager, fv, gv);
-    if (t == NULL) return(NULL);
+    if (t == NULL)
+	goto cleanup;
     cuddRef(t);
+    use_idr[deref_cnt] = 0;
+    deref_set[deref_cnt++] = t;
 
     e = cuddBddXorRecur(manager, fnv, gnv);
-    if (e == NULL) {
-	Cudd_IterDerefBdd(manager, t);
-	return(NULL);
-    }
+    if (e == NULL)
+	goto cleanup;
     cuddRef(e);
 
-    r = bddGenerateNode(manager,index,index,t,e);
+    r = bddGenerateNode(manager,index,bindex,t,e, &use_idr[deref_cnt]);
+    deref_set[deref_cnt++] = e;
 
-    if (r == NULL) return(NULL);
-
-    cuddDeref(e);
-    cuddDeref(t);
-    cuddCacheInsert2(manager, Cudd_bddXor, f, g, r);
-    return(r);
-
+ cleanup:
+    if (r == NULL) {
+	for (i = 0; i < deref_cnt; i++)
+	    Cudd_IterDerefBdd(manager, deref_set[i]);
+    } else {
+	for (i = 0; i < deref_cnt; i++) {
+	    if (use_idr[i]) 
+		Cudd_IterDerefBdd(manager, deref_set[i]);
+	    else
+		cuddDeref(deref_set[i]);
+	}
+	if (F->ref != 1 || G->ref != 1)
+	    cuddCacheInsert2(manager, Cudd_bddXor, f, g, r);
+    }
+    return r;
 } /* end of cuddBddXorRecur */
 
 
@@ -1354,7 +1454,9 @@ bddSimpleCofactor(
 {
     register DdNode *F, *Fv, *Fnv;
     register unsigned int flevel;
+    register int comple;
     F = Cudd_Regular(f);
+    comple = Cudd_IsComplement(f);
     flevel = cuddI(dd,F->index);
 
     if (flevel == level) {
@@ -1363,16 +1465,62 @@ bddSimpleCofactor(
 	}
 	Fv = cuddT(F);
 	Fnv = cuddE(F);
-	if (Cudd_IsComplement(f)) {
-	    Fv = Cudd_Not(Fv);
-	    Fnv = Cudd_Not(Fnv);
-	}
-	*fvp = Fv;
-	*fnvp = Fnv;
     } else {
-	*fvp = *fnvp = f;
+	Fv = Fnv = F;
     }
+    *fvp = Cudd_NotCond(Fv,comple);
+    *fnvp = Cudd_NotCond(Fnv, comple);
+
 }  /* End of bddSimpleCofactor */
+
+static int
+bddSimpleCofactorChained(
+  DdManager * dd,
+  DdNode * f,
+  unsigned int blevel,
+  DdNode ** fvp,
+  DdNode ** fnvp)
+{
+    register DdNode *F, *Fv, *Fnv, *fnvt, *fnve;
+    register unsigned int findex, flevel, fbindex, fblevel, nindex;
+    register int comple;
+    register int new_ref = 0;
+
+    F = Cudd_Regular(f);
+    comple = Cudd_IsComplement(f);
+    findex = F->index;
+    flevel = cuddI(dd,findex);
+    fbindex = F->bindex;
+    fblevel = cuddI(dd,fbindex);
+
+    if (blevel < flevel) {
+	/* No splitting required */
+	Fv = Fnv = F;	
+    } else if (blevel == fblevel) {
+	/* Splitting parameters match this node */
+	Fv = cuddT(F);
+	Fnv = cuddE(F);
+    } else {
+	/* blevel < fblevel */
+	/* Must construct new node for E child */
+	Fv = fnvt = cuddT(F);
+	fnve = cuddE(F);
+	nindex = cuddII(dd, blevel + 1);
+	Fnv = cuddUniqueInterChained(dd,(int)nindex,(int)fbindex,fnvt,fnve);
+	if (Fnv == NULL) 
+	    return 0;
+	//	printf("Cofactored node %p with indices %d:%d into one %p with indices %d:%d\n",
+	//	       f, findex, fbindex, Fnv, nindex, fbindex);
+	/* Create reference for it */
+	cuddRef(Fnv);
+	new_ref = 1;
+    }
+    *fvp = Cudd_NotCond(Fv,comple);
+    *fnvp = Cudd_NotCond(Fnv,comple);
+
+    return new_ref;
+}
+
 
 /**Function********************************************************************
 
@@ -1392,12 +1540,14 @@ bddGenerateNode(
   unsigned int index,
   unsigned int bindex,
   DdNode *t,
-  DdNode *e)
+  DdNode *e,
+  int    *use_idrp)
 {
     DdNode *r = NULL;
     int comple;
     DdNode *et, *ee;
     unsigned int blevel, elevel, ebindex;
+    int use_idr = 0;
 
     if (t == e)
 	return (t);
@@ -1418,8 +1568,13 @@ bddGenerateNode(
 	    if (elevel == blevel+1) {
 		ebindex = e->bindex;
 		ee = Cudd_E(e);
+		cuddRef(ee);
 		r = cuddUniqueInterChained(dd,(int)index,(int)ebindex,t,ee);
-		printf("Chained %u:%u+%u:%u\n", cuddI(dd,index), blevel, elevel, cuddI(dd,ebindex));
+		cuddDeref(ee);
+		use_idr = 1;
+		//		printf("Chained %u:%u+%u:%u.  Replace %p by %p\n",
+		//		cuddI(dd,index), blevel, elevel, cuddI(dd,ebindex),
+		//		       e, ee);
 	    }
 	}
     }
@@ -1429,10 +1584,16 @@ bddGenerateNode(
 	if (r == NULL) {
 	    Cudd_IterDerefBdd(dd, t);
 	    Cudd_IterDerefBdd(dd, e);
+	    if (use_idrp)
+		*use_idrp = 0;
 	    return(NULL);
 	}
     }
     if (comple)
 	r = Cudd_Not(r);
+
+    if (use_idrp)
+	*use_idrp = use_idr;
+
     return(r);
 } /* End of bddGenerateNode */

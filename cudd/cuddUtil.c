@@ -176,8 +176,8 @@ static int cuddNodeArrayRecur (DdNode *f, DdNodePtr *table, int index);
 static int cuddEstimateCofactor (DdManager *dd, st_table *table, DdNode * node, int i, int phase, DdNode ** ptr);
 static DdNode * cuddUniqueLookup (DdManager * unique, int  index, DdNode * T, DdNode * E);
 static int cuddEstimateCofactorSimple (DdNode * node, int i);
-static double ddCountMintermAux (DdNode *node, double max, DdHashTable *table);
-static int ddEpdCountMintermAux (DdNode *node, EpDouble *max, EpDouble *epd, st_table *table);
+static double ddCountMintermAux (DdManager *dd, DdNode *node, double max, DdHashTable *table);
+static int ddEpdCountMintermAux (DdManager *dd, DdNode *node, EpDouble *max, EpDouble *epd, st_table *table);
 static double ddCountPathAux (DdNode *node, st_table *table);
 static double ddCountPathsToNonZero (DdNode * N, st_table * table);
 static void ddSupportStep (DdNode *f, int *support);
@@ -599,7 +599,7 @@ Cudd_CountMinterm(
     }
     epsilon = Cudd_ReadEpsilon(manager);
     Cudd_SetEpsilon(manager,(CUDD_VALUE_TYPE)0.0);
-    res = ddCountMintermAux(node,max,table);
+    res = ddCountMintermAux(manager,node,max,table);
     cuddHashTableQuit(table);
     Cudd_SetEpsilon(manager,epsilon);
 
@@ -677,7 +677,7 @@ Cudd_EpdCountMinterm(
 	EpdMakeZero(epd, 0);
 	return(CUDD_OUT_OF_MEM);
     }
-    status = ddEpdCountMintermAux(Cudd_Regular(node),&max,epd,table);
+    status = ddEpdCountMintermAux(manager,Cudd_Regular(node),&max,epd,table);
     st_foreach(table, ddEpdFree, NULL);
     st_free_table(table);
     if (status == CUDD_OUT_OF_MEM) {
@@ -3425,6 +3425,7 @@ cuddEstimateCofactorSimple(
 } /* end of cuddEstimateCofactorSimple */
 
 
+
 /**Function********************************************************************
 
   Synopsis    [Performs the recursive step of Cudd_CountMinterm.]
@@ -3433,9 +3434,12 @@ cuddEstimateCofactorSimple(
   It is based on the following identity. Let |f| be the
   number of minterms of f. Then:
   <xmp>
-    |f| = (|f0|+|f1|)/2
+    |f| = wtE*|f0|+wtT|f1|
   </xmp>
-  where f0 and f1 are the two cofactors of f.  Does not use the
+  where f0 and f1 are the two cofactors of f.  The weights are computed
+  as wtE = (1/2)^(b-t+1), where b & t are the top & bottom levels of f.
+  wtE = 1.0-wtT.
+  Does not use the
   identity |f'| = max - |f|, to minimize loss of accuracy due to
   roundoff.  Returns the number of minterms of the function rooted at
   node.]
@@ -3445,6 +3449,7 @@ cuddEstimateCofactorSimple(
 ******************************************************************************/
 static double
 ddCountMintermAux(
+  DdManager * dd,		  
   DdNode * node,
   double  max,
   DdHashTable * table)
@@ -3452,8 +3457,12 @@ ddCountMintermAux(
     DdNode	*N, *Nt, *Ne;
     double	min, minT, minE;
     DdNode	*res;
+    unsigned int level, blevel;
+    double      wtT, wtE;
 
     N = Cudd_Regular(node);
+    level = cuddI(dd, N->index);
+    blevel = cuddI(dd, N->bindex);
 
     if (cuddIsConstant(N)) {
 	if (node == background || node == zero) {
@@ -3476,13 +3485,15 @@ ddCountMintermAux(
 	Nt = Cudd_Not(Nt); Ne = Cudd_Not(Ne);
     }
 
-    minT = ddCountMintermAux(Nt,max,table);
+    /* T gets proportionally more weight when node spans multiple levels */
+    wtE = pow(0.5, blevel-level+1);
+    wtT = 1.0 - wtE;
+
+    minT = ddCountMintermAux(dd,Nt,max,table);
     if (minT == (double)CUDD_OUT_OF_MEM) return((double)CUDD_OUT_OF_MEM);
-    minT *= 0.5;
-    minE = ddCountMintermAux(Ne,max,table);
+    minE = ddCountMintermAux(dd,Ne,max,table);
     if (minE == (double)CUDD_OUT_OF_MEM) return((double)CUDD_OUT_OF_MEM);
-    minE *= 0.5;
-    min = minT + minE;
+    min = wtT * minT + wtE * minE;
 
     if (N->ref != 1) {
 	ptrint fanout = (ptrint) N->ref;
@@ -3582,6 +3593,7 @@ ddCountPathAux(
 ******************************************************************************/
 static int
 ddEpdCountMintermAux(
+  DdManager * dd,
   DdNode * node,
   EpDouble * max,
   EpDouble * epd,
@@ -3608,10 +3620,10 @@ ddEpdCountMintermAux(
 
     Nt = cuddT(node); Ne = cuddE(node);
 
-    status = ddEpdCountMintermAux(Nt,max,&minT,table);
+    status = ddEpdCountMintermAux(dd, Nt,max,&minT,table);
     if (status == CUDD_OUT_OF_MEM) return(CUDD_OUT_OF_MEM);
     EpdMultiply(&minT, (double)0.5);
-    status = ddEpdCountMintermAux(Cudd_Regular(Ne),max,&minE,table);
+    status = ddEpdCountMintermAux(dd, Cudd_Regular(Ne),max,&minE,table);
     if (status == CUDD_OUT_OF_MEM) return(CUDD_OUT_OF_MEM);
     if (Cudd_IsComplement(Ne)) {
 	EpdSubtract3(max, &minE, epd);
@@ -3962,7 +3974,11 @@ ddFindSupport(
   DdNode *f,
   int *SP)
 {
-    int index;
+    /* With Chained BDDs, must scan all variables within range.
+       These are determined by the levels, not the indices */
+    int index, bindex, mindex;
+    unsigned int level, blevel, mlevel;
+
     DdNode *var;
 
     if (cuddIsConstant(f) || Cudd_IsComplement(f->next)) {
@@ -3970,15 +3986,25 @@ ddFindSupport(
     }
 
     index = f->index;
-    var = dd->vars[index];
-    /* It is possible that var is embedded in f.  That causes no problem,
-    ** though, because if we see it after encountering another node with
-    ** the same index, nothing is supposed to happen.
-    */
-    if (!Cudd_IsComplement(var->next)) {
-        var->next = Cudd_Complement(var->next);
-        dd->stack[*SP] = (DdNode *)(ptrint) index;
-        (*SP)++;
+    bindex = f->bindex;
+    level = cuddI(dd, index);
+    blevel = cuddI(dd, bindex);
+
+    //    printf("\tNode %p.  Indices %d:%d.  Ref %d\n",
+    //	   f, index, bindex, f->ref);
+    
+    for (mlevel = level; mlevel <= blevel; mlevel++) {
+	mindex = cuddII(dd, mlevel);
+	var = dd->vars[mindex];
+	/* It is possible that var is embedded in f.  That causes no problem,
+	** though, because if we see it after encountering another node with
+	** the same index, nothing is supposed to happen.
+	*/
+	if (!Cudd_IsComplement(var->next)) {
+	    var->next = Cudd_Complement(var->next);
+	    dd->stack[*SP] = (DdNode *)(ptrint) mindex;
+	    (*SP)++;
+	}
     }
     ddFindSupport(dd, cuddT(f), SP);
     ddFindSupport(dd, Cudd_Regular(cuddE(f)), SP);

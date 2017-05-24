@@ -662,6 +662,24 @@ typedef struct DdLevelQueue {
 ******************************************************************************/
 #define	cuddI(dd,index) (((index)==CUDD_CONST_INDEX)?(int)(index):(dd)->perm[(index)])
 
+/**Macro***********************************************************************
+
+  Synopsis [Finds the current variable index for a given position in
+  the variable order.  This macro duplicates the functionality of
+  Cudd_InvReadPerm, but it does not check for out-of-bounds levels
+  and it is more efficient.]
+
+  Description [Finds the current variable index for a given position
+  in the variable order]
+
+  SideEffects [none]
+
+  SeeAlso     [Cudd_ReadInvPerm]
+
+******************************************************************************/
+#define	cuddII(dd,level) (((level)==CUDD_CONST_INDEX)?(int)(level):(dd)->invperm[(level)])
+
+
 
 /**Macro***********************************************************************
 
