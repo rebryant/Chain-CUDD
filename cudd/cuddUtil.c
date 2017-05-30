@@ -3990,8 +3990,8 @@ ddFindSupport(
     level = cuddI(dd, index);
     blevel = cuddI(dd, bindex);
 
-    //    printf("\tNode %p.  Indices %d:%d.  Ref %d\n",
-    //	   f, index, bindex, f->ref);
+    //    printf("\tNode %p.  Indices %d:%d.  Levels %d:%d.  Ref %d\n",
+    //	   f, index, bindex, level, blevel, f->ref);
     
     for (mlevel = level; mlevel <= blevel; mlevel++) {
 	mindex = cuddII(dd, mlevel);

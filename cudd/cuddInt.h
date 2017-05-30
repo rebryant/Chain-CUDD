@@ -727,7 +727,7 @@ typedef struct DdLevelQueue {
   (unsigned)(t) * DD_P3) >> (s))
 #else
 #define ddHash2(f,g,s,b)   \
-((((unsigned)(f) * DD_P1 + (unsigned)(g)) * DD_P2 (unsigned) (b) * DD_P3) >> (s))
+((((unsigned)(f) * DD_P1 + (unsigned)(g)) * DD_P2 + (unsigned) (b) * DD_P3) >> (s))
 #endif
 
 /**Macro***********************************************************************

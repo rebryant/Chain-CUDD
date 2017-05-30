@@ -77,7 +77,7 @@ extern "C" {
 #define CUDD_VERSION "2.5.1C"
 
 #ifndef SIZEOF_VOID_P
-#define SIZEOF_VOID_P 4
+#define SIZEOF_VOID_P 8
 #endif
 #ifndef SIZEOF_INT
 #define SIZEOF_INT 4

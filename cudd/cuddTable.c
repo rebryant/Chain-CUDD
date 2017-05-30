@@ -1555,6 +1555,8 @@ cuddUniqueInterZdd(
     looking = cuddAllocNode(unique);
     if (looking == NULL) return(NULL);
     looking->index = index;
+    // Patch
+    looking->bindex = index;
     cuddT(looking) = T;
     cuddE(looking) = E;
     looking->next = nodelist[pos];
