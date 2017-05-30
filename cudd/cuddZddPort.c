@@ -195,9 +195,11 @@ zddPortFromBddStep(
   DdNode * B,
   int  expected)
 {
-    DdNode	*res, *prevZdd, *t, *e;
+    DdNode	*res, *prevZdd, *prevT, *t, *e;
     DdNode	*Breg, *Bt, *Be;
-    int		id, level;
+    int		index, level;
+    int         bindex, blevel;
+    int         iindex, ilevel;
 
     statLine(dd);
     /* Terminal cases. */
@@ -221,10 +223,10 @@ zddPortFromBddStep(
 	if (expected < level) {
 	    /* Add suppressed variables. */
 	    cuddRef(res);
-	    for (level--; level >= expected; level--) {
+	    for (ilevel = level-1; ilevel >= expected; ilevel--) {
 		prevZdd = res;
-		id = dd->invperm[level];
-		res = cuddZddGetNode(dd, id, prevZdd, prevZdd);
+		iindex = dd->invperm[ilevel];
+		res = cuddZddGetNode(dd, iindex, prevZdd, prevZdd);
 		if (res == NULL) {
 		    Cudd_RecursiveDerefZdd(dd, prevZdd);
 		    return(NULL);
@@ -245,33 +247,51 @@ zddPortFromBddStep(
 	Be = cuddE(Breg);
     }
 
-    id = Breg->index;
-    level = cuddI(dd,id);
-    t = zddPortFromBddStep(dd, Bt, level+1);
+    index = Breg->index;
+    level = cuddI(dd,index);
+    bindex = Breg->bindex;
+    blevel = cuddI(dd,bindex);
+    
+    t = Bt;
     if (t == NULL) return(NULL);
     cuddRef(t);
-    e = zddPortFromBddStep(dd, Be, level+1);
+    e = zddPortFromBddStep(dd, Be, blevel+1);
     if (e == NULL) {
 	Cudd_RecursiveDerefZdd(dd, t);
 	return(NULL);
     }
     cuddRef(e);
-    res = cuddZddGetNode(dd, id, t, e);
-    if (res == NULL) {
-	Cudd_RecursiveDerefZdd(dd, t);
-	Cudd_RecursiveDerefZdd(dd, e);
-	return(NULL);
+    res = e;
+    for (ilevel = blevel; ilevel >= level; ilevel--) {
+	/* Undo chaining */
+	prevT = t;
+	t = zddPortFromBddStep(dd, prevT, ilevel+1);
+	if (t == NULL) {
+	    Cudd_RecursiveDerefZdd(dd, prevT);
+	    Cudd_RecursiveDerefZdd(dd, res);
+	    return NULL;
+	}
+	cuddRef(t);
+	Cudd_RecursiveDerefZdd(dd, prevT);
+	prevZdd = res;
+	iindex = dd->invperm[ilevel];
+	res = cuddZddGetNode(dd, iindex, t, prevZdd);
+	if (res == NULL) {
+	    Cudd_RecursiveDerefZdd(dd, prevZdd);
+	    Cudd_RecursiveDerefZdd(dd, t);
+	    return NULL;
+	}
+	cuddRef(res);
+	Cudd_RecursiveDerefZdd(dd, prevZdd);
     }
-    cuddRef(res);
     Cudd_RecursiveDerefZdd(dd, t);
-    Cudd_RecursiveDerefZdd(dd, e);
 
     cuddCacheInsert1(dd,Cudd_zddPortFromBdd,B,res);
 
-    for (level--; level >= expected; level--) {
+    for (ilevel = level-1; ilevel >= expected; ilevel--) {
 	prevZdd = res;
-	id = dd->invperm[level];
-	res = cuddZddGetNode(dd, id, prevZdd, prevZdd);
+	iindex = dd->invperm[ilevel];
+	res = cuddZddGetNode(dd, iindex, prevZdd, prevZdd);
 	if (res == NULL) {
 	    Cudd_RecursiveDerefZdd(dd, prevZdd);
 	    return(NULL);
